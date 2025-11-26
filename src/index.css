@@ -1,0 +1,11 @@
+/* Override Bootstrap's table hover styles */
+.table-striped.table-hover tbody tr:hover {
+  --bs-table-hover-bg: #e3f2fd;
+  background-color: #e3f2fd !important;
+  cursor: pointer;
+  transition: background-color 0.2s ease;
+}
+
+.table-hover tbody tr:hover td {
+  background-color: #e3f2fd !important;
+}
