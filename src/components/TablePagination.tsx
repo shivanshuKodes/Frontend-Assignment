@@ -8,25 +8,52 @@ interface TablePaginationProps {
 }
 
 function TablePagination({ totalPages, currentPage, setCurrentPage }: TablePaginationProps) {
+  // Validate totalPages to prevent rendering with invalid values
+  const isValidTotalPages = Number.isFinite(totalPages) && totalPages > 0;
+  const safeTotalPages = isValidTotalPages ? totalPages : 1;
+
+  // Ensure currentPage is within valid bounds
+  const safeCurrentPage = Math.max(1, Math.min(currentPage, safeTotalPages));
+
+  const isFirstPage = safeCurrentPage === 1;
+  const isLastPage = safeCurrentPage === safeTotalPages;
+
+  // Don't render pagination if totalPages is invalid
+  if (!isValidTotalPages) {
+    return null;
+  }
+
   return (
     <Pagination>
 
-      <Pagination.First onClick={() => setCurrentPage(1)} />
-      <Pagination.Prev onClick={() => setCurrentPage(prevPage => Math.max(1, prevPage - 1))} />
+      <Pagination.First
+        onClick={() => setCurrentPage(1)}
+        disabled={isFirstPage}
+      />
+      <Pagination.Prev
+        onClick={() => setCurrentPage(prevPage => Math.max(1, prevPage - 1))}
+        disabled={isFirstPage}
+      />
 
       {/* Pagination numbers */}
-      {[...Array(totalPages)].map((_, i) => (
+      {[...Array(safeTotalPages)].map((_, i) => (
         <Pagination.Item
           key={i + 1}
-          active={currentPage === i + 1}
+          active={safeCurrentPage === i + 1}
           onClick={() => setCurrentPage(i + 1)}
         >
           {i + 1}
         </Pagination.Item>
       ))}
 
-      <Pagination.Next onClick={() => setCurrentPage(prevPage => Math.min(totalPages, prevPage + 1))} />
-      <Pagination.Last onClick={() => setCurrentPage(totalPages)} />
+      <Pagination.Next
+        onClick={() => setCurrentPage(prevPage => Math.min(safeTotalPages, prevPage + 1))}
+        disabled={isLastPage}
+      />
+      <Pagination.Last
+        onClick={() => setCurrentPage(safeTotalPages)}
+        disabled={isLastPage}
+      />
     </Pagination>
   );
 }

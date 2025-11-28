@@ -4,6 +4,7 @@ import { useState, useEffect, useRef } from "react";
 import EditModal from "./EditModal";
 import axios from "axios";
 import type { User } from "../types";
+import { getRoleDisplayName, UserRole } from "../types";
 
 interface UsertableProps {
   searchTerm: string;
@@ -20,29 +21,35 @@ function Usertable({ searchTerm }: UsertableProps) {
   const [currUsers, setCurrUsers] = useState<User[]>([]);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [editUserData, setEditUserData] = useState<User | null>(null);
-  const totalPages = Math.ceil(filteredUsers.length / PAGE_SIZE);
+  const totalPages = Math.ceil(filteredUsers.length / PAGE_SIZE) || 0;
   const selectAllRef = useRef<HTMLInputElement>(null);
 
 
 
   useEffect(() => {
-    axios.get<User[]>(API_URL)
-      .then(response => {
-        setUsers(response.data);
-        setFilteredUsers(response.data);
-      })
-      .catch(error => {
+    const fetchUsers = async () => {
+      try {
+        const response = await axios.get<User[]>(API_URL);
+        setUsers(response?.data || []);
+        setFilteredUsers(response?.data || []);
+      } catch (error) {
         console.error("Error fetching users:", error);
-      });
+        // Set empty arrays on error to prevent undefined state
+        setUsers([]);
+        setFilteredUsers([]);
+      }
+    };
+
+    fetchUsers();
   }, []);
 
   // Filter users whenever users or searchTerm changes (no page reset)
   useEffect(() => {
     const term = searchTerm ? searchTerm.toLowerCase() : "";
     const filtered = users.filter(user =>
-      user.name.toLowerCase().includes(term) ||
-      user.email.toLowerCase().includes(term) ||
-      user.role.toLowerCase().includes(term)
+      user?.name?.toLowerCase().includes(term) ||
+      user?.email?.toLowerCase().includes(term) ||
+      user?.role?.toLowerCase().includes(term)
     );
     setFilteredUsers(filtered);
   }, [searchTerm, users]);
@@ -52,10 +59,12 @@ function Usertable({ searchTerm }: UsertableProps) {
     setCurrentPage(1);
   }, [searchTerm]);
 
-  //  if current page exceeds total pages after deletion
+  //  if current page exceeds total pages after deletion of the users
   useEffect(() => {
     if (currentPage > totalPages && totalPages > 0) {
       setCurrentPage(totalPages);
+    } else if (currentPage < 1) {
+      setCurrentPage(1);
     }
   }, [currentPage, totalPages]);
 
@@ -68,7 +77,7 @@ function Usertable({ searchTerm }: UsertableProps) {
   // keep selectAll checkbox indeterminate when some (but not all) rows on page are selected
   useEffect(() => {
     if (!selectAllRef.current) return;
-    const pageIds = currUsers.map(u => u.id);
+    const pageIds = currUsers.map(u => u?.id).filter(Boolean) as string[];
     const selectedOnPageCount = pageIds.filter(id => selectedIds.has(id)).length;
     if (selectedOnPageCount === 0) { // no row selected
       selectAllRef.current.checked = false;
@@ -78,7 +87,7 @@ function Usertable({ searchTerm }: UsertableProps) {
       selectAllRef.current.indeterminate = false;
     } else { // some rows selected
       selectAllRef.current.checked = false;
-      selectAllRef.current.indeterminate = selectedOnPageCount > 0;
+      selectAllRef.current.indeterminate = false;
     }
   }, [currUsers, selectedIds]);
 
@@ -92,26 +101,45 @@ function Usertable({ searchTerm }: UsertableProps) {
   };
 
 
-  // select/deselect all rows on current page only
+  /**
+   * Toggles selection state for all rows on the current page.
+   * If all rows are selected, deselects them; otherwise, selects all rows.
+   */
+  const togglePageSelection = (prevSelection: Set<string>, pageIds: string[]): Set<string> => {
+    // Create a new Set to avoid mutating the previous state
+    const nextSelection = new Set(prevSelection);
+
+    // Check if all rows on the current page are already selected
+    const allPageRowsSelected = pageIds.every(id => nextSelection.has(id));
+
+    if (allPageRowsSelected) {
+      // Deselect all rows on the current page
+      pageIds.forEach(id => nextSelection.delete(id));
+    } else {
+      // Select all rows on the current page
+      pageIds.forEach(id => nextSelection.add(id));
+    }
+
+    return nextSelection;
+  };
+
+  // Select/deselect all rows on current page only
   const toggleSelectAllOnPage = () => {
     setSelectedIds(prev => {
-      const next = new Set(prev);
-      const pageIds = currUsers.map(u => u.id);
-      const allSelected = pageIds.every(id => next.has(id));
-      if (allSelected) {
-        // deselect page ids
-        pageIds.forEach(id => next.delete(id));
-      } else {
-        // select page ids
-        pageIds.forEach(id => next.add(id));
-      }
-      return next;
+      const pageIds = currUsers.map(u => u?.id).filter(Boolean) as string[];
+      return togglePageSelection(prev, pageIds);
     });
   };
 
   // Delete a single user by id
   const handleDeleteUser = (userId: string) => {
-    setUsers(prev => prev.filter(u => u.id !== userId));
+    // Prevent deletion if userId is empty or undefined
+    if (!userId || userId.trim() === '') {
+      console.warn('Cannot delete user: invalid userId');
+      return;
+    }
+
+    setUsers(prev => prev.filter(u => u?.id !== userId));
     setSelectedIds(prev => {
       const next = new Set(prev);
       next.delete(userId);
@@ -122,7 +150,9 @@ function Usertable({ searchTerm }: UsertableProps) {
   // Delete multiple users by their ids
   const handleDeleteMultiple = (userIds: Set<string>) => {
     if (userIds.size === 0) return;
-    setUsers(prev => prev.filter(u => !userIds.has(u.id)));
+
+    setUsers(prev => prev.filter(u => u?.id && !userIds.has(u.id)));
+
     setSelectedIds(prev => {
       const next = new Set(prev);
       userIds.forEach(id => next.delete(id));
@@ -139,12 +169,18 @@ function Usertable({ searchTerm }: UsertableProps) {
   const isSelected = (id: string) => selectedIds.has(id);
 
   const editUser = (userData: User) => {
+    // Validate user data before opening modal
+    if (!userData?.id || !userData?.name || !userData?.email) {
+      console.warn('Cannot edit user: missing required fields');
+      return;
+    }
+
     setShow(true);
     setEditUserData(userData);
   }
 
   const updateUserData = (updatedUser: User) => {
-    setUsers(prev => prev.map(user => user.id === updatedUser.id ? updatedUser : user));
+    setUsers(prev => prev.map(user => user?.id === updatedUser?.id ? updatedUser : user));
     setShow(false);
   }
 
@@ -152,56 +188,88 @@ function Usertable({ searchTerm }: UsertableProps) {
   return (
     <>
       <Table striped bordered hover responsive className="border border-1 rounded text-center">
-        <thead>
-          <tr>
-            <th>
-              <input
-                ref={selectAllRef}
-                type="checkbox"
-                className="form-check-input"
-                id="selectAll"
-                onChange={toggleSelectAllOnPage}
-              />
-            </th>
-            {tableHeadings.map((heading, index) => (
-              <th key={index}>{heading}</th>
-            ))}
-          </tr>
-        </thead>
-        <tbody>
-          {currUsers.map((data, idx) => (
-            <tr key={data.id ?? idx}>
-              <td>
+        {filteredUsers.length > 0 && (
+          <thead>
+            <tr>
+              <th>
                 <input
+                  ref={selectAllRef}
                   type="checkbox"
                   className="form-check-input"
-                  checked={isSelected(data.id)}
-                  onChange={() => toggleRow(data.id)}
+                  id="selectAll"
+                  onChange={toggleSelectAllOnPage}
                 />
-              </td>
-              <td>{data.name}</td>
-              <td>{data.email}</td>
-              <td>{data.role}</td>
-              <td className="d-flex justify-content-evenly">
-                <button className="btn btn-outline-primary btn-sm" onClick={() => editUser(data)}>
-                  <i className="bi bi-pencil-square me-1"></i>
-                  Edit
-                </button>
-                <button
-                  className="btn btn-outline-danger btn-sm"
-                  onClick={() => handleDeleteUser(data.id)}
-                >
-                  <i className="bi bi-trash me-1"></i>
-                  Delete
-                </button>
+              </th>
+              {tableHeadings.map((heading, index) => (
+                <th key={index}>{heading}</th>
+              ))}
+            </tr>
+          </thead>
+        )}
+        <tbody>
+          {filteredUsers.length === 0 ? (
+            <tr>
+              <td colSpan={tableHeadings.length + 1} className="text-muted py-5">
+                <i className="bi bi-inbox fs-1 d-block mb-2"></i>
+                <h5>No Data Found</h5>
+                <p className="mb-0">No users match your search criteria or all users have been deleted.</p>
               </td>
             </tr>
-          ))}
+          ) : (
+            currUsers.map((data, idx) => {
+              const hasValidId = data?.id && data.id.trim() !== '';
+
+              return (
+                <tr key={data?.id ?? idx}>
+                  <td>
+                    <input
+                      type="checkbox"
+                      className="form-check-input"
+                      checked={!!(hasValidId && isSelected(data.id))}
+                      onChange={() => { if (hasValidId) toggleRow(data.id); }}
+                      disabled={!hasValidId}
+                    />
+                  </td>
+                  <td>{data?.name || 'N/A'}</td>
+                  <td>{data?.email || 'N/A'}</td>
+                  <td>{data?.role ? getRoleDisplayName(data.role as UserRole) : 'N/A'}</td>
+                  <td className="d-flex justify-content-evenly">
+                    <button
+                      className="btn btn-outline-primary btn-sm"
+                      onClick={() => editUser(data)}
+                      disabled={!hasValidId}
+                    >
+                      <i className="bi bi-pencil-square me-1"></i>
+                      Edit
+                    </button>
+                    <button
+                      className="btn btn-outline-danger btn-sm"
+                      onClick={() => { if (hasValidId) handleDeleteUser(data.id); }}
+                      disabled={!hasValidId}
+                    >
+                      <i className="bi bi-trash me-1"></i>
+                      Delete
+                    </button>
+                  </td>
+                </tr>
+              );
+            })
+          )}
         </tbody>
       </Table>
       <div className="d-flex align-items-center justify-content-between mt-2">
-        <button className="btn btn-danger" onClick={deleteSelected}>
+        <button
+          className="btn btn-danger"
+          onClick={deleteSelected}
+          disabled={selectedIds.size === 0}
+        >
+          <i className="bi bi-trash me-1"></i>
           Delete Selected
+          {selectedIds.size > 0 && (
+            <span className="badge bg-light text-dark ms-2">
+              {selectedIds.size}
+            </span>
+          )}
         </button>
         {totalPages > 1 && (
           <TablePagination

@@ -21,7 +21,7 @@ function SearchBox({ onSearch, onClear }: SearchBoxProps) {
   };
 
   const handleKeyDown = (e: KeyboardEvent<HTMLInputElement>) => {
-    if (e.key === 'Enter') {
+    if (e?.key === 'Enter') {
       handleSearchClick();
     }
   };
@@ -33,7 +33,7 @@ function SearchBox({ onSearch, onClear }: SearchBoxProps) {
           aria-label="Default"
           aria-describedby="inputGroup-sizing-default"
           value={inputValue}
-          onChange={(e) => setInputValue(e.target.value)}
+          onChange={(e) => setInputValue(e?.target?.value || '')}
           onKeyDown={handleKeyDown}
           placeholder="Search by name, email or role"
         />
